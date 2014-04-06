@@ -1,0 +1,90 @@
+#!/usr/bin/env dart
+
+import 'dart:io';
+import 'package:path/path.dart' as path;
+import 'package:yaml/yaml.dart';
+
+main() {
+  var pubspecYaml = new File('pubspec.yaml').readAsStringSync();
+  var pubspec = loadYaml(pubspecYaml);
+
+  pubspec['transformers'].
+    where((t) => t.keys.length == 1 && t.keys.first == 'polymer').
+    forEach((t){
+      var entry_points = t['polymer']['entry_points'];
+      var filenames = entry_points.runtimeType == String ?
+        [entry_points] : entry_points;
+      print('Making: $filenames');
+      filenames.
+        forEach((filename) {
+          new PolymerScriptReducer(filename).reduce();
+        });
+    });
+}
+
+class PolymerScriptReducer {
+  String filename;
+  PolymerScriptReducer(this.filename);
+
+  File get buildFile => new File('build/$filename');
+  Directory get buildDirectory => buildFile.parent;
+  String get basename => path.basename(buildFile.path);
+
+  void reduce() {
+    _backup();
+
+    // Strip entry point of polymer-templates and script tags
+    var html = buildFile.readAsStringSync();
+
+    var polymerElementRegExp = new RegExp(
+      r'<polymer-element[\s\S]+/polymer-element>',
+      multiLine: true
+    );
+
+    var polymer_template;
+    var fixed = html.
+      replaceAllMapped(
+        polymerElementRegExp,
+        (m) { polymer_template = m.group(0); return ''; }
+      ).
+      replaceAll(new RegExp(r'<script[^<]+</script>'), '').
+      replaceFirst('<head>', '<head>\n<script src="${basename}_reduced_polymer.js"></script>');
+
+    // new File('deploy/index.html').
+    buildFile.
+      openSync(mode: FileMode.WRITE).
+      writeStringSync(fixed);
+
+    // Build Single JS file
+    var js = _buildSingleJavaScript(polymer_template);
+    new File('${buildDirectory.path}/${basename}_reduced_polymer.js').
+      openSync(mode: FileMode.WRITE).
+      writeStringSync(js);
+  }
+
+  _backup()=> buildFile.copySync('build/$filename.pre-reduce');
+
+  _buildSingleJavaScript(templateHtml) {
+    return _templateJs(templateHtml) +
+      new File('packages/shadow_dom/shadow_dom.min.js').readAsStringSync() +
+      new File('packages/custom_element/custom-elements.min.js').readAsStringSync() +
+      // new File('packages/browser/interop.js').readAsStringSync();
+      new File('packages/browser/interop.js').readAsStringSync() +
+      new File('build/${filename}_bootstrap.dart.js').readAsStringSync();
+  }
+
+  _templateJs(html) => '''
+var _html = ${_htmlAsJsString(html)}
+
+window.addEventListener('DOMContentLoaded', function(){
+  var container = document.createElement('div');
+  container.innerHTML = _html;
+  document.body.appendChild(container);
+});
+''';
+
+  _htmlAsJsString(html) => '''
+'' +
+${html.split('\n').map((s)=> "'" + s + "' +").join('\n')}
+'';''';
+}

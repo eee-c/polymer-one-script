@@ -1,0 +1,10 @@
+name: polymer_one_script
+version: 0.0.1
+description: Polymer.dart single script builder
+author: Chris Strom <chris@eeecomputes.com>
+homepage: https://github.com/eee-c/polymer-one-script
+dependencies:
+  path: any
+  yaml: any
+dev_dependencies:
+  scheduled_test: any
